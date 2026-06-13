@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Triagem de Benefícios Previdenciários e Assistenciais</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  :root{
+    --verde:#14402F; --verde-claro:#EFF4F0; --papel:#FBFAF5; --creme:#F2EFE6;
+    --tinta:#1C1B17; --cinza:#6B675B; --cinza-claro:#DAD6C8; --borda:#C9C4B4;
+    --vermelho:#8C3A33; --vermelho-fundo:#FBF1EF; --vermelho-borda:#D8B6B1;
+    --alta:#2E7D4F; --media:#B07D2B; --baixa:#A85B2A; --verificar:#5B6770;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--papel);color:var(--tinta);font-family:'IBM Plex Sans',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+  header{background:var(--verde);color:var(--creme);padding:16px 20px}
+  header h1{font-family:'Lora',Georgia,serif;font-weight:600;font-size:20px;margin:0}
+  main{flex:1;display:flex;justify-content:center;padding:28px 16px}
+  .caixa{width:100%;max-width:620px}
+  h2{font-family:'Lora',Georgia,serif;font-weight:600;line-height:1.35}
+  button{font-family:inherit;cursor:pointer}
+  button:hover:not(:disabled){filter:brightness(.97)}
+  button:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+  .btn-primario{background:var(--verde);color:var(--creme);border:none;border-radius:6px;padding:12px 28px;font-size:15.5px;font-weight:600}
+  .btn-secundario{background:transparent;border:1px solid var(--verde);color:var(--verde);border-radius:6px;padding:10px 20px;font-size:14px;font-weight:600}
+  .btn-opcao{display:block;width:100%;text-align:left;background:#fff;border:1.5px solid var(--borda);border-radius:8px;padding:14px 16px;font-size:15.5px;line-height:1.45;margin-bottom:10px;color:var(--tinta)}
+  .btn-opcao.sel{border-color:var(--verde);background:var(--verde-claro)}
+  .aviso{font-size:13.5px;line-height:1.6;color:var(--vermelho);border:1px solid var(--vermelho-borda);background:var(--vermelho-fundo);border-radius:6px;padding:10px 14px;text-align:left}
+  .cartao{background:#fff;border:1px solid var(--cinza-claro);border-radius:8px;padding:16px 18px}
+  .mono{font-family:'IBM Plex Mono',monospace}
+  .progresso-fundo{height:5px;background:#E4E0D2;border-radius:3px;margin-bottom:22px}
+  .progresso-barra{height:100%;background:var(--verde);border-radius:3px;transition:width .3s}
+  .hipotese{background:#fff;border:1px solid var(--cinza-claro);border-radius:8px;padding:14px 16px;margin-bottom:12px}
+  .selo{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em}
+  footer{border-top:1px solid var(--cinza-claro);padding:8px 20px;font-size:11.5px;color:#8A8678;font-family:'IBM Plex Mono',monospace}
+  textarea,input{font-family:inherit}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Triagem de Benefícios Previdenciários e Assistenciais</h1></header>
+<main><div class="caixa" id="app"></div></main>
+<footer>triagem informativa · regras fixas, sem inteligência artificial</footer>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════════
+// CONFIGURAÇÃO — cole aqui a URL do seu App da Web (Apps Script), entre aspas:
+const URL_PLANILHA = "https://script.google.com/macros/s/AKfycbz6ta2hS3ynrKPZH82qxemVWFAZ6hpoYLoT9s71fgAHQ-VQfdFJYfjEMqZikzn3gv6Q/exec";
+// ═════════════════════════════════════════════════════════════════════════════
+
+const SM = "salário mínimo";
+
+const QUESTOES = [
+  { id:"objetivo", texto:"O que traz você aqui hoje?",
+    opcoes:[
+      {v:"proprio", t:"Quero saber se tenho direito a algum benefício"},
+      {v:"pensao", t:"Perdi um familiar e quero saber sobre pensão por morte"}]},
+  { id:"pensao_contribuia", texto:"A pessoa que faleceu contribuía para o INSS ou recebia aposentadoria/benefício?",
+    cond:r=>r.objetivo==="pensao",
+    opcoes:[
+      {v:"sim", t:"Sim"},
+      {v:"parou", t:"Contribuía, mas tinha parado há algum tempo"},
+      {v:"nao", t:"Não"},
+      {v:"ns", t:"Não sei"}]},
+  { id:"pensao_vinculo", texto:"Qual era o seu vínculo com a pessoa falecida?",
+    cond:r=>r.objetivo==="pensao",
+    opcoes:[
+      {v:"conjuge", t:"Cônjuge ou companheiro(a)"},
+      {v:"filho_menor", t:"Filho(a) menor de 21 anos ou com deficiência"},
+      {v:"pais", t:"Pai ou mãe que dependia dela"},
+      {v:"outro", t:"Outro"}]},
+  { id:"idade", texto:"Qual é a sua idade?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"ate54", t:"Até 54 anos"},
+      {v:"55a59", t:"55 a 59 anos"},
+      {v:"60a61", t:"60 ou 61 anos"},
+      {v:"62a64", t:"62 a 64 anos"},
+      {v:"65mais", t:"65 anos ou mais"}]},
+  { id:"genero", texto:"Você é homem ou mulher?",
+    ajuda:"Usamos essa informação porque a lei define idades diferentes de aposentadoria para homens e mulheres.",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"f", t:"Mulher"},
+      {v:"m", t:"Homem"}]},
+  { id:"contribuicao", texto:"Você já trabalhou com carteira assinada ou pagou INSS por conta própria?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"15mais", t:"Sim, por 15 anos ou mais (somando tudo)"},
+      {v:"menos15", t:"Sim, mas menos de 15 anos"},
+      {v:"nunca", t:"Nunca"}]},
+  { id:"rural", texto:"Você trabalhou na roça, na pesca ou em atividade rural em regime familiar?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"maior_parte", t:"Sim, a maior parte da minha vida"},
+      {v:"parte", t:"Sim, uma parte da vida"},
+      {v:"nao", t:"Não"}]},
+  { id:"deficiencia", texto:"Você tem alguma deficiência ou problema de saúde que dura (ou vai durar) 2 anos ou mais e dificulta sua vida e seu trabalho?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[{v:"sim",t:"Sim"},{v:"nao",t:"Não"}]},
+  { id:"incapaz_atual", texto:"Neste momento, você está sem conseguir trabalhar por causa de doença ou acidente?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[{v:"sim",t:"Sim"},{v:"nao",t:"Não"}]},
+  { id:"contrib_recente", texto:"Você contribuiu para o INSS (ou trabalhou com carteira) em algum momento nos últimos 12 meses?",
+    cond:r=>r.objetivo==="proprio" && r.incapaz_atual==="sim",
+    opcoes:[{v:"sim",t:"Sim"},{v:"nao",t:"Não"},{v:"ns",t:"Não sei"}]},
+  { id:"renda", texto:"Somando o dinheiro que entra na sua casa por mês e dividindo pelo número de pessoas que moram com você, dá quanto por pessoa?",
+    ajuda:"Exemplo: se entram R$ 1.500 e moram 4 pessoas, dá menos de meio salário mínimo por pessoa.",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"ate_quarto", t:"Até 1/4 do "+SM+" por pessoa"},
+      {v:"quarto_meio", t:"Entre 1/4 e 1/2 "+SM+" por pessoa"},
+      {v:"acima_meio", t:"Mais de 1/2 "+SM+" por pessoa"},
+      {v:"ns", t:"Não sei calcular"}]},
+  { id:"cadunico", texto:"Sua família está inscrita no CadÚnico (Cadastro Único do governo)?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"sim_atual", t:"Sim, e está atualizado"},
+      {v:"sim_desat", t:"Sim, mas está desatualizado"},
+      {v:"nao", t:"Não"},
+      {v:"ns", t:"Não sei"}]},
+  { id:"beneficio_atual", texto:"Você já recebe algum benefício?",
+    cond:r=>r.objetivo==="proprio",
+    opcoes:[
+      {v:"previdenciario", t:"Sim, do INSS (aposentadoria, auxílio, BPC...)"},
+      {v:"bolsa", t:"Só Bolsa Família ou parecido"},
+      {v:"nao", t:"Não recebo nada"}]},
+  { id:"negado_inss", texto:"Você já pediu algum benefício ao INSS e teve o pedido negado?",
+    opcoes:[
+      {v:"sim", t:"Sim"},
+      {v:"nao", t:"Não"},
+      {v:"nunca_pedi", t:"Nunca pedi"}]},
+  { id:"zona", texto:"Onde você mora?",
+    opcoes:[
+      {v:"urbana", t:"Na cidade"},
+      {v:"rural", t:"Na zona rural"}]}
+];
+
+const ROTULOS = {};
+QUESTOES.forEach(q=>{ ROTULOS[q.id]={}; q.opcoes.forEach(o=>ROTULOS[q.id][o.v]=o.t); });
+
+function cadPend(r){
+  if(r.cadunico==="sim_atual") return [];
+  if(r.cadunico==="sim_desat") return ["Atualizar o CadÚnico no CRAS (requisito: art. 20, §12, Lei 8.742/93)"];
+  return ["Inscrever a família no CadÚnico no CRAS (requisito: art. 20, §12, Lei 8.742/93)"];
+}
+
+function categoria(nome){
+  if(nome.indexOf("BPC")===0) return "BPC/LOAS";
+  if(nome.indexOf("Aposentadoria")!==-1) return "Aposentadoria";
+  if(nome.toLowerCase().indexOf("incapacidade")!==-1) return "Benefício por incapacidade";
+  if(nome.indexOf("Pensão")===0) return "Pensão por morte";
+  return "Nenhuma hipótese";
+}
+
+function avaliar(r){
+  const h=[];
+  const idosa65 = r.idade==="65mais";
+  const rendaQuarto = r.renda==="ate_quarto";
+  const rendaMeio = r.renda==="quarto_meio";
+  const recebePrev = r.beneficio_atual==="previdenciario";
+
+  if(r.objetivo==="pensao"){
+    if(r.pensao_contribuia==="sim" && r.pensao_vinculo!=="outro"){
+      h.push({beneficio:"Pensão por morte", viabilidade:"alta",
+        fundamento:"A pessoa falecida mantinha qualidade de segurada e você está no rol de dependentes do art. 16 da Lei 8.213/91 (art. 74).",
+        pendencias:["Comprovar o vínculo de dependência","Certidão de óbito","Documentos do(a) falecido(a)"]});
+    } else if(r.pensao_contribuia==="parou"){
+      h.push({beneficio:"Pensão por morte", viabilidade:"média",
+        fundamento:"É preciso verificar se a pessoa ainda estava no 'período de graça' (art. 15, Lei 8.213/91), que mantém a qualidade de segurado por 12 a 36 meses após parar de contribuir.",
+        pendencias:["Extrato CNIS do(a) falecido(a)","Data da última contribuição"]});
+    } else if(r.pensao_contribuia==="ns"){
+      h.push({beneficio:"Pensão por morte", viabilidade:"média",
+        fundamento:"Sem informação sobre as contribuições, a viabilidade depende do extrato CNIS do(a) falecido(a) (arts. 15 e 74, Lei 8.213/91).",
+        pendencias:["Extrato CNIS do(a) falecido(a)"]});
+    } else {
+      h.push({beneficio:"Pensão por morte", viabilidade:"baixa",
+        fundamento:"Sem contribuições, em regra não há qualidade de segurado (art. 74 c/c art. 15, Lei 8.213/91). Vale conferir o CNIS mesmo assim — às vezes há vínculos antigos esquecidos.",
+        pendencias:["Extrato CNIS do(a) falecido(a)"]});
+    }
+    return h;
+  }
+
+  if(idosa65 && !recebePrev){
+    if(rendaQuarto){
+      h.push({beneficio:"BPC/LOAS — Idoso", viabilidade:"alta",
+        fundamento:"Idade igual ou superior a 65 anos e renda familiar per capita de até 1/4 do salário mínimo (art. 20, caput e §3º, Lei 8.742/93).",
+        pendencias:cadPend(r)});
+    } else if(rendaMeio){
+      h.push({beneficio:"BPC/LOAS — Idoso", viabilidade:"média",
+        fundamento:"Idade preenchida; renda entre 1/4 e 1/2 do salário mínimo pode ser aceita em algumas situações, considerando gastos com saúde e a vulnerabilidade do caso concreto (art. 20-B, Lei 8.742/93; RE 567.985/STF).",
+        pendencias:cadPend(r).concat(["Comprovar despesas com saúde/medicamentos e a situação de vulnerabilidade"])});
+    } else if(r.renda==="ns"){
+      h.push({beneficio:"BPC/LOAS — Idoso", viabilidade:"média",
+        fundamento:"Idade preenchida; é preciso apurar a renda familiar per capita (art. 20, §3º, Lei 8.742/93).",
+        pendencias:cadPend(r).concat(["Levantar a renda de todos da casa"])});
+    }
+  }
+
+  if(r.deficiencia==="sim" && !recebePrev && (rendaQuarto||rendaMeio||r.renda==="ns")){
+    h.push({beneficio:"BPC/LOAS — Pessoa com Deficiência", viabilidade: rendaQuarto?"alta":"média",
+      fundamento:"Impedimento de longo prazo (mínimo 2 anos) que limita a participação plena na sociedade, com renda dentro do critério legal ou flexibilizado (art. 20, §§2º e 10, Lei 8.742/93"+(rendaQuarto?").":"; flexibilização da renda: art. 20-B e RE 567.985/STF)."),
+      pendencias:cadPend(r).concat(["Laudos e relatórios médicos que comprovem o impedimento de longo prazo","Avaliação social e médica (perícia)"])});
+  }
+
+  const idadeUrbanaOk = (r.genero==="f" && (r.idade==="62a64"||idosa65)) || (r.genero==="m" && idosa65);
+  if(idadeUrbanaOk && r.contribuicao==="15mais"){
+    h.push({beneficio:"Aposentadoria por idade (urbana)", viabilidade:"alta",
+      fundamento:"Idade mínima atingida (62 anos mulher / 65 anos homem — EC 103/2019) e carência de 180 contribuições aparentemente cumprida (art. 25, II, Lei 8.213/91).",
+      pendencias:["Conferir o extrato CNIS para confirmar os 180 meses de carência"]});
+  } else if(idadeUrbanaOk && r.contribuicao==="menos15"){
+    h.push({beneficio:"Aposentadoria por idade (urbana)", viabilidade:"média",
+      fundamento:"Idade atingida, mas a carência de 180 contribuições precisa ser verificada no CNIS — vínculos não anotados podem ser reconhecidos com provas (art. 25, II, Lei 8.213/91; possível averbação de períodos).",
+      pendencias:["Extrato CNIS","Carteiras de trabalho antigas, holerites, contratos"]});
+  }
+
+  const idadeRuralOk = (r.genero==="f" && (r.idade==="55a59"||r.idade==="60a61"||r.idade==="62a64"||idosa65)) ||
+                       (r.genero==="m" && (r.idade==="60a61"||r.idade==="62a64"||idosa65));
+  if(r.rural==="maior_parte" && idadeRuralOk){
+    h.push({beneficio:"Aposentadoria por idade rural", viabilidade:"alta",
+      fundamento:"Idade reduzida do trabalhador rural (55 mulher / 60 homem) com atividade rural em regime de economia familiar (arts. 11, VII, e 48, §§1º e 2º, Lei 8.213/91). Exige início de prova material, complementada por testemunhas (Súmula 149/STJ).",
+      pendencias:["Reunir início de prova material: notas de produtor, ITR, contratos de parceria, fichas de sindicato, certidões com profissão 'lavrador(a)'","Indicar testemunhas"]});
+  } else if(r.rural==="parte" && idadeRuralOk){
+    h.push({beneficio:"Aposentadoria por idade (híbrida)", viabilidade:"média",
+      fundamento:"Períodos rurais e urbanos podem ser somados na aposentadoria híbrida (art. 48, §3º, Lei 8.213/91), aos 62/65 anos.",
+      pendencias:["Extrato CNIS","Provas do período rural"]});
+  }
+
+  if(r.incapaz_atual==="sim"){
+    if(r.contrib_recente==="sim"){
+      h.push({beneficio:"Benefício por incapacidade temporária (auxílio-doença)", viabilidade:"alta",
+        fundamento:"Incapacidade atual para o trabalho com aparente qualidade de segurado (arts. 59 e 15, Lei 8.213/91). A carência de 12 meses é dispensada em acidentes e doenças graves (art. 26, II).",
+        pendencias:["Atestados e laudos médicos atualizados","Confirmar qualidade de segurado no CNIS","Perícia do INSS"]});
+    } else {
+      h.push({beneficio:"Benefício por incapacidade", viabilidade:"média",
+        fundamento:"Há incapacidade relatada, mas a qualidade de segurado depende do 'período de graça' (art. 15, Lei 8.213/91) ou da data de início da doença — análise técnica necessária.",
+        pendencias:["Extrato CNIS","Laudos com data de início da doença (DID)"]});
+    }
+  }
+
+  if(h.length===0){
+    h.push({beneficio:"Nenhuma hipótese clara identificada nesta triagem", viabilidade:"verificar",
+      fundamento:"Pelas respostas, nenhum requisito legal se completa de forma evidente. Isso NÃO significa ausência de direito: situações como tempo de contribuição não anotado, agravamento de saúde ou mudança de renda alteram o resultado. Consulte o INSS pelo site/app Meu INSS ou pela Central 135, ou busque orientação profissional.",
+      pendencias:["Reunir documentos pessoais e o extrato CNIS para uma análise completa"]});
+  }
+  return h;
+}
+
+// ── Envio para a planilha Google ─────────────────────────────────────────────
+function gerarId(){ return Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8); }
+
+function montarRegistro(r, h, duracaoS){
+  return {
+    id: gerarId(),
+    ts: new Date().toISOString(),
+    duracao_s: duracaoS,
+    genero: r.genero ? ROTULOS.genero[r.genero] : "",
+    idade: r.idade ? ROTULOS.idade[r.idade] : "",
+    renda: r.renda ? ROTULOS.renda[r.renda] : "",
+    cadunico: r.cadunico ? ROTULOS.cadunico[r.cadunico] : "",
+    negado_inss: r.negado_inss ? ROTULOS.negado_inss[r.negado_inss] : "",
+    hipoteses: h.map(x=>x.beneficio+" ["+x.viabilidade+"]").join(" | "),
+    categorias: h.map(x=>categoria(x.beneficio)).filter((v,i,a)=>a.indexOf(v)===i).join(" | ")
+  };
+}
+
+function guardarPendente(reg){
+  try{
+    const p = JSON.parse(localStorage.getItem("triagem_pendentes")||"[]");
+    p.push(reg);
+    localStorage.setItem("triagem_pendentes", JSON.stringify(p));
+  }catch(e){ console.warn("Sem espaço para pendentes:", e); }
+}
+
+function enviarRegistro(reg){
+  if(!URL_PLANILHA || URL_PLANILHA.indexOf("COLE")===0){
+    console.warn("URL da planilha não configurada — resposta não enviada.");
+    return;
+  }
+  if(!navigator.onLine){ guardarPendente(reg); return; }
+  fetch(URL_PLANILHA, {
+    method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify(reg)
+  }).catch(function(){ guardarPendente(reg); });
+}
+
+function reenviarPendentes(){
+  if(!navigator.onLine) return;
+  if(!URL_PLANILHA || URL_PLANILHA.indexOf("COLE")===0) return;
+  let p=[];
+  try{ p = JSON.parse(localStorage.getItem("triagem_pendentes")||"[]"); }catch(e){}
+  if(!p.length) return;
+  localStorage.setItem("triagem_pendentes","[]");
+  p.forEach(function(reg){ enviarRegistro(reg); });
+}
+
+// ── Interface ────────────────────────────────────────────────────────────────
+const app = document.getElementById("app");
+let estado = { tela:"inicio", respostas:{}, idx:0, inicioMs:null, hipoteses:[] };
+const CORES = {alta:"var(--alta)", "média":"var(--media)", baixa:"var(--baixa)", verificar:"var(--verificar)"};
+
+function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+function visiveis(){ return QUESTOES.filter(q=>!q.cond || q.cond(estado.respostas)); }
+
+function render(){
+  if(estado.tela==="inicio"){
+    app.innerHTML =
+      '<div style="text-align:center;padding-top:24px">'+
+      '<h2 style="font-size:28px;margin:0 0 14px">Responda algumas perguntas simples e descubra quais benefícios podem valer para você.</h2>'+
+      '<p style="font-size:15.5px;line-height:1.65;color:#45433C;margin:0 0 8px">São poucas perguntas, todas de marcar — sem escrever nada. Ao final, você vê as hipóteses encontradas, a lei que diz isso e os documentos para levar para fazer o requerimento junto ao INSS.</p>'+
+      '<p class="aviso" style="margin:14px 0 24px"><strong>Importante:</strong> esta triagem é apenas informativa, não decide nada e não garante a concessão de benefício. Quem analisa e decide os pedidos é o INSS.</p>'+
+      '<button class="btn-primario" onclick="irPara(\'antes\')">Começar</button>'+
+      '</div>';
+  }
+  else if(estado.tela==="antes"){
+    app.innerHTML =
+      '<h2 style="font-size:22px;margin:0 0 12px">Antes de começar</h2>'+
+      '<div class="cartao" style="font-size:14.5px;line-height:1.7;color:#33312B">'+
+      '<p style="margin:0 0 10px">Esta triagem é apenas informativa e não substitui a orientação de um profissional. Existem exceções que não são abordadas aqui.</p>'+
+      '<p style="margin:0 0 10px"><strong>Não coletamos nome, CPF, telefone nem qualquer dado que identifique você.</strong></p>'+
+      '<p style="margin:0;font-size:13px;color:var(--cinza)">As respostas são registradas de forma anônima, apenas por categorias (faixas de idade e renda, sim/não), para fins estatísticos e de pesquisa.</p>'+
+      '</div>'+
+      '<div style="display:flex;gap:10px;margin-top:18px">'+
+      '<button class="btn-primario" onclick="iniciarFluxo()">Iniciar triagem</button>'+
+      '<button class="btn-secundario" onclick="irPara(\'inicio\')">Voltar</button>'+
+      '</div>';
+  }
+  else if(estado.tela==="fluxo"){
+    const vis = visiveis();
+    const q = vis[estado.idx];
+    if(!q){ concluir(); return; }
+    const prog = Math.round(((estado.idx+1)/vis.length)*100);
+    let html =
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'+
+      '<span class="mono" style="font-size:11.5px;letter-spacing:.12em;color:var(--cinza)">PERGUNTA '+(estado.idx+1)+' DE '+vis.length+'</span>'+
+      '<span class="mono" style="font-size:11.5px;color:var(--cinza)">'+prog+'%</span></div>'+
+      '<div class="progresso-fundo"><div class="progresso-barra" style="width:'+prog+'%"></div></div>'+
+      '<h2 style="font-size:21.5px;margin:0 0 6px">'+esc(q.texto)+'</h2>'+
+      (q.ajuda ? '<p style="font-size:13.5px;color:var(--cinza);line-height:1.55;margin:0 0 14px">'+esc(q.ajuda)+'</p>' : '')+
+      '<div style="margin-top:14px">';
+    q.opcoes.forEach(function(o){
+      const sel = estado.respostas[q.id]===o.v ? " sel" : "";
+      html += '<button class="btn-opcao'+sel+'" onclick="responder(\''+q.id+'\',\''+o.v+'\')">'+esc(o.t)+'</button>';
+    });
+    html += '</div><button class="btn-secundario" style="margin-top:8px" onclick="voltar()">← Voltar</button>';
+    app.innerHTML = html;
+    window.scrollTo(0,0);
+  }
+  else if(estado.tela==="resultado"){
+    let html =
+      '<h2 style="font-size:23px;margin:0 0 4px">Resultado da triagem</h2>'+
+      '<p style="font-size:13.5px;color:var(--cinza);margin:0 0 18px">Hipóteses preliminares geradas por regras fixas — cada uma indica a lei que a fundamenta.</p>';
+    estado.hipoteses.forEach(function(h){
+      const cor = CORES[h.viabilidade]||"var(--cinza)";
+      html += '<div class="hipotese" style="border-left:5px solid '+cor+'">'+
+        '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'+
+        '<strong style="font-size:16px">'+esc(h.beneficio)+'</strong>'+
+        '<span class="selo" style="color:'+cor+'">'+(h.viabilidade==="verificar"?"análise necessária":"viabilidade "+h.viabilidade)+'</span></div>'+
+        '<p style="font-size:14px;line-height:1.6;color:#33312B;margin:8px 0 0">'+esc(h.fundamento)+'</p>'+
+        (h.pendencias && h.pendencias.length ? '<p style="font-size:13px;line-height:1.6;color:var(--cinza);margin:8px 0 0"><strong>Próximos passos:</strong> '+esc(h.pendencias.join("; "))+'.</p>' : '')+
+        '</div>';
+    });
+    html +=
+      '<div style="background:var(--creme);border:1px solid var(--cinza-claro);border-radius:8px;padding:12px 16px;font-size:13.5px;line-height:1.6;margin-bottom:14px">'+
+      '<strong>Documentos básicos para o requerimento:</strong> RG e CPF; Comprovante de residência; Extrato CNIS (Meu INSS ou agência). '+
+      '<strong>Como pedir:</strong> pelo site ou aplicativo <strong>Meu INSS</strong> (meu.inss.gov.br) ou pela <strong>Central 135</strong> (ligação gratuita, de segunda a sábado).</div>'+
+      '<div class="mono" style="border:1px dashed var(--vermelho);color:var(--vermelho);border-radius:6px;padding:10px 14px;font-size:12.5px;line-height:1.55;margin-bottom:18px">'+
+      'AVISO — Resultado informativo gerado por regras automáticas fixas, sem inteligência artificial. Ele não garante a concessão de benefício: a análise e a decisão cabem ao INSS. Em caso de dúvida, busque orientação de um profissional.</div>'+
+      '<button class="btn-secundario" onclick="reiniciar()">Fazer nova triagem</button>';
+    app.innerHTML = html;
+    window.scrollTo(0,0);
+  }
+}
+
+function irPara(t){ estado.tela=t; render(); }
+function iniciarFluxo(){ estado.inicioMs=Date.now(); estado.idx=0; estado.respostas={}; estado.tela="fluxo"; render(); }
+
+function responder(id, v){
+  estado.respostas[id]=v;
+  const vis = visiveis();
+  const pos = vis.findIndex(function(x){return x.id===id;});
+  if(pos+1 < vis.length){ estado.idx = pos+1; render(); }
+  else { concluir(); }
+}
+
+function voltar(){
+  if(estado.idx>0){ estado.idx--; render(); }
+  else { irPara("antes"); }
+}
+
+function concluir(){
+  const h = avaliar(estado.respostas);
+  estado.hipoteses = h;
+  const dur = estado.inicioMs ? Math.round((Date.now()-estado.inicioMs)/1000) : null;
+  enviarRegistro(montarRegistro(estado.respostas, h, dur));
+  estado.tela="resultado";
+  render();
+}
+
+function reiniciar(){
+  estado = { tela:"inicio", respostas:{}, idx:0, inicioMs:null, hipoteses:[] };
+  render();
+}
+
+reenviarPendentes();
+render();
+</script>
+</body>
+</html>
